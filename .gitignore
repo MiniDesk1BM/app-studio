@@ -1,0 +1,11 @@
+projects/
+__pycache__/
+*.pyc
+.env
+.env.*
+.bob/
+logs/
+sd-cpp/
+Fooocus-API/
+Fooocus_win64_2-5-0/
+*.7z

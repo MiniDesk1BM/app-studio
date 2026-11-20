@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; frame-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<title>App Studio - Ollama + Z-Image Turbo</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <aside class="side">
+    <div class="brand">
+      <img src="logo.svg" alt="" width="36" height="36">
+      <div>
+        <div class="brand-name">App Studio</div>
+        <div class="brand-sub">Ollama &times; Z-Image Turbo</div>
+      </div>
+    </div>
+
+    <section class="block">
+      <h3>Services</h3>
+      <div class="svc" id="svc-ollama">
+        <span class="dot"></span>
+        <div class="svc-main"><strong>Ollama</strong><small id="svc-ollama-txt">Vérification...</small></div>
+      </div>
+      <div class="svc" id="svc-images">
+        <span class="dot"></span>
+        <div class="svc-main"><strong>Images (Z-Image Turbo)</strong><small id="svc-images-txt">Vérification...</small></div>
+      </div>
+    </section>
+
+    <section class="block">
+      <h3>Modèles Ollama</h3>
+      <label class="field"><span>Conception (plan, sans code)</span>
+        <select id="model-design" aria-label="Modèle de conception"></select>
+      </label>
+      <label class="field"><span>Code (écrit les fichiers)</span>
+        <select id="model" aria-label="Modèle de code"></select>
+      </label>
+      <label class="range">
+        <span>Créativité <output id="temp-out">0.4</output></span>
+        <input type="range" id="temp" min="0" max="1" step="0.1" value="0.4">
+      </label>
+    </section>
+
+    <section class="block grow">
+      <div class="block-head">
+        <h3>Projets</h3>
+        <button class="btn mini" id="btn-new" type="button">+ Nouveau</button>
+      </div>
+      <ul class="projects" id="projects"></ul>
+    </section>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <ol class="stepper" id="stepper"></ol>
+      <div class="proj">
+        <input id="proj-name" type="text" maxlength="48" placeholder="nom-du-projet" aria-label="Nom du projet" spellcheck="false">
+        <a class="btn" id="btn-zip" href="#" download>Exporter .zip</a>
+      </div>
+    </header>
+
+    <div class="work">
+      <section class="chat" aria-label="Conversation">
+        <div class="messages" id="messages"></div>
+        <form class="composer" id="composer" autocomplete="off">
+          <textarea id="prompt" rows="3" maxlength="6000" placeholder="Décrivez l'application à créer ou la modification à apporter..."></textarea>
+          <div class="composer-row">
+            <label class="opt" id="opt-improve-chat" title="Réécrit votre demande avec gnokit/improve-prompt avant la conception et le code">
+              <input type="checkbox" id="chat-improve"> Améliorer ma demande
+            </label>
+            <span class="hint">Entrée pour envoyer, Maj+Entrée pour une nouvelle ligne</span>
+            <button type="button" class="btn" id="btn-stop" hidden>Arrêter</button>
+            <button type="submit" class="btn primary" id="btn-send">Générer</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel" aria-label="Espace de travail">
+        <nav class="tabs" id="tabs" role="tablist">
+          <button type="button" role="tab" data-tab="preview" class="active">Aperçu</button>
+          <button type="button" role="tab" data-tab="code">Code</button>
+          <button type="button" role="tab" data-tab="visuals">Visuels <span class="badge" id="badge-visuals" hidden>0</span></button>
+          <button type="button" role="tab" data-tab="guide">Guide</button>
+        </nav>
+
+        <div class="tab-body" id="tab-preview">
+          <div class="toolbar">
+            <div class="seg" id="devices">
+              <button type="button" data-w="desktop" class="active">Bureau</button>
+              <button type="button" data-w="tablet">Tablette</button>
+              <button type="button" data-w="mobile">Mobile</button>
+            </div>
+            <span class="spacer"></span>
+            <button type="button" class="btn mini" id="btn-reload">Recharger</button>
+            <a class="btn mini" id="btn-open" href="#" target="_blank" rel="noopener">Ouvrir</a>
+          </div>
+          <div class="stage" id="stage">
+            <div class="empty" id="preview-empty">
+              <img src="logo.svg" alt="" width="64" height="64">
+              <h2>Votre application apparaîtra ici</h2>
+              <p>Décrivez-la dans la conversation. Ollama écrit le code, Z-Image Turbo crée les images, puis l'aperçu s'affiche automatiquement.</p>
+            </div>
+            <iframe id="preview" title="Aperçu de l'application" sandbox="allow-scripts allow-forms allow-modals" hidden></iframe>
+          </div>
+        </div>
+
+        <div class="tab-body" id="tab-code" hidden>
+          <div class="code-wrap">
+            <ul class="filelist" id="filelist"></ul>
+            <div class="editor">
+              <div class="toolbar">
+                <strong id="file-title">Aucun fichier</strong>
+                <span class="spacer"></span>
+                <button type="button" class="btn mini" id="btn-savefile">Enregistrer</button>
+              </div>
+              <textarea id="code" spellcheck="false" aria-label="Contenu du fichier"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-body" id="tab-visuals" hidden>
+          <div class="toolbar">
+            <strong>Visuels du projet</strong>
+            <span class="spacer"></span>
+            <label class="opt" id="opt-improve" title="Réécrit chaque description avec gnokit/improve-prompt avant de dessiner">
+              <input type="checkbox" id="v-improve"> Améliorer les prompts
+            </label>
+            <button type="button" class="btn mini" id="btn-addslot">+ Ajouter</button>
+            <button type="button" class="btn primary mini" id="btn-genall">Tout générer</button>
+          </div>
+          <div class="banner" id="images-banner" hidden>
+            Le moteur d'images (sd-cpp) est incomplet : les placeholders restent affichés. Voir l'onglet Guide.
+          </div>
+          <div class="slots" id="slots"></div>
+        </div>
+
+        <div class="tab-body" id="tab-guide" hidden>
+          <div class="guide" id="guide"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="app.js" defer></script>
+</body>
+</html>
