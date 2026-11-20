@@ -127,12 +127,15 @@
           <div class="toolbar">
             <strong>Visuels du projet</strong>
             <span class="spacer"></span>
+            <select id="v-device" aria-label="Calcul des images" title="Périphérique de calcul des images"></select>
+            <button type="button" class="btn mini" id="btn-gpu" title="Relancer la détection de la carte graphique">Détecter le GPU</button>
             <label class="opt" id="opt-improve" title="Réécrit chaque description avec gnokit/improve-prompt avant de dessiner">
               <input type="checkbox" id="v-improve"> Améliorer les prompts
             </label>
             <button type="button" class="btn mini" id="btn-addslot">+ Ajouter</button>
             <button type="button" class="btn primary mini" id="btn-genall">Tout générer</button>
           </div>
+          <div class="banner info" id="gpu-note" hidden></div>
           <div class="banner" id="images-banner" hidden>
             Le moteur d'images (sd-cpp) est incomplet : les placeholders restent affichés. Voir l'onglet Guide.
           </div>

@@ -105,6 +105,86 @@ def installed():
     return {"ollama": Path(OLLAMA_EXE).is_file(), "images": all(p.is_file() for p in sd_files)}
 
 
+# -- Détection du GPU. Deux niveaux : les périphériques que le sd-cli installé sait utiliser (--list-devices) et le
+# matériel présent sur la machine (Windows, nvidia-smi), pour signaler qu'une version GPU de sd-cli est à installer.
+SD_DEVICE = os.environ.get("SD_DEVICE", "auto")  # auto | cpu | nom d'un périphérique (ex. CUDA0, Vulkan0)
+_DEVICE_RE = re.compile(r"[A-Za-z0-9_.:-]{1,40}")
+_VIRTUAL_GPU_RE = re.compile(r"basic|remote|virtual|indirect|parsec|meta", re.I)
+_gpu = {"devices": [], "hardware": [], "scanned": False, "scanning": False}
+_gpu_lock = threading.Lock()
+
+
+def _run_quiet(cmd, timeout, cwd=None):
+    """Exécute une commande sans fenêtre et renvoie sa sortie standard ('' en cas d'échec)."""
+    r = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", timeout=timeout,  # noqa: S603
+                       stdin=subprocess.DEVNULL, cwd=cwd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return r.stdout if r.returncode == 0 else ""
+
+
+def _scan_gpu():
+    devices, hardware = [], []
+    if SD_CLI.is_file():
+        try:
+            for line in _run_quiet([str(SD_CLI), "--list-devices"], 30, str(SD_DIR)).splitlines():
+                name, _, desc = line.partition("\t")
+                name = name.strip()
+                if _DEVICE_RE.fullmatch(name) and not name.upper().startswith("CPU"):
+                    devices.append({"name": name, "description": desc.strip()[:120]})
+        except Exception:
+            log.warning("Liste des périphériques sd-cli indisponible", exc_info=True)
+    if sys.platform == "win32":
+        try:
+            out = _run_quiet(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                              "(Get-CimInstance Win32_VideoController).Name"], 45)
+            hardware = [{"name": n.strip()[:120], "vram_mb": None} for n in out.splitlines()
+                        if n.strip() and not _VIRTUAL_GPU_RE.search(n)]
+            if any("nvidia" in h["name"].lower() for h in hardware):
+                smi = _run_quiet(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"], 15)
+                for line in smi.splitlines():
+                    name, _, mem = line.rpartition(",")
+                    for h in hardware:
+                        if h["name"] == name.strip() and mem.strip().isdigit():
+                            h["vram_mb"] = int(mem.strip())
+        except Exception:
+            log.warning("Détection du matériel graphique impossible", exc_info=True)
+    with _gpu_lock:
+        _gpu.update(devices=devices, hardware=hardware, scanned=True, scanning=False)
+    log.info("GPU détecté : périphériques sd-cli=%s, matériel=%s", [d["name"] for d in devices],
+             [h["name"] for h in hardware])
+
+
+def start_gpu_scan():
+    """Lance (une seule fois à la fois) la détection en arrière-plan : elle peut durer plusieurs secondes."""
+    with _gpu_lock:
+        if _gpu["scanning"]:
+            return False
+        _gpu["scanning"] = True
+    threading.Thread(target=_scan_gpu, daemon=True).start()
+    return True
+
+
+def gpu_status():
+    with _gpu_lock:
+        snap = {k: (list(v) if isinstance(v, list) else v) for k, v in _gpu.items()}
+    snap["default"] = SD_DEVICE
+    return snap
+
+
+def resolve_device(requested):
+    """Périphérique de calcul à utiliser : 'cpu' ou le nom d'un périphérique détecté (liste d'autorisation)."""
+    choice = SD_DEVICE if requested is None else requested
+    if not isinstance(choice, str):
+        raise ApiError(400, "Périphérique de calcul invalide.")
+    names = [d["name"] for d in gpu_status()["devices"]]
+    if choice == "cpu":
+        return "cpu"
+    if choice == "auto":
+        return names[0] if names else "cpu"
+    if choice in names:
+        return choice
+    raise ApiError(400, "Périphérique de calcul invalide.")
+
+
 # Un seul gros modèle en mémoire à la fois : chat Ollama et génération d'image s'excluent mutuellement.
 _mem_lock = threading.Lock()
 
@@ -308,8 +388,8 @@ def read_preview():
     return data if data.startswith(_PNG_SIG) and data.endswith(_PNG_END) else None
 
 
-def run_sd(prompt, width, height, seed):
-    """Génère une image avec sd-cli (Z-Image Turbo) et renvoie les octets PNG."""
+def run_sd(prompt, width, height, seed, device="cpu"):
+    """Génère une image avec sd-cli (Z-Image Turbo) sur le périphérique donné et renvoie les octets PNG."""
     with tempfile.TemporaryDirectory(prefix="studio-img-") as tmp:
         out, preview = Path(tmp) / "out.png", Path(tmp) / "preview.png"
         # --preview proj : projection des latents en couleurs (sans décodage VAE), écrite à chaque étape.
@@ -317,6 +397,10 @@ def run_sd(prompt, width, height, seed):
                "-p", prompt.lstrip("- "), "--cfg-scale", "1.0", "--steps", str(SD_STEPS),
                "-W", str(width), "-H", str(height), "--vae-tiling",
                "--preview", "proj", "--preview-path", str(preview), "--preview-interval", "1", "-o", str(out)]
+        if device != "cpu":
+            cmd += ["--backend", device]
+        elif gpu_status()["devices"]:
+            cmd += ["--backend", "cpu"]  # build GPU : sans cette option sd-cli choisirait un GPU tout seul
         if seed is not None:
             cmd += ["-s", str(seed)]
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -422,6 +506,7 @@ def generate_image(body):
         return placeholder_svg(prompt, width, height), "image/svg+xml", True, prompt
     if not installed()["images"]:
         raise ApiError(409, "Le moteur d'images (sd-cpp) est introuvable. Voir l'onglet Guide.")
+    device = resolve_device(body.get("device"))
     model = body.get("model")  # modèle Ollama à recharger une fois les images terminées
     models = ollama_status()["models"]
     reload_model = model if isinstance(model, str) and model in models else None
@@ -441,7 +526,7 @@ def generate_image(body):
                 prompt = improve_prompt(improver, prompt)  # modèle déchargé (keep_alive 0) avant sd-cli
                 if _cancel.is_set():
                     raise ApiError(409, "Génération arrêtée.")
-            return run_sd(prompt, width, height, seed), "image/png", False, prompt
+            return run_sd(prompt, width, height, seed, device), "image/png", False, prompt
         except ApiError:
             raise
         except Exception:
@@ -562,7 +647,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, data, "image/png", {"Cache-Control": "no-store"})
         if path == "/api/status":
             ollama = ollama_status()
-            return self._json(200, {"ollama": ollama, "images": image_status(),
+            return self._json(200, {"ollama": ollama, "images": image_status(), "gpu": gpu_status(),
                                     "installed": installed(), "improve_model": find_improver(ollama["models"]),
                                     "ollama_url": OLLAMA_URL})
         if path == "/api/projects":
@@ -618,6 +703,8 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/api/services/(ollama)/start", path)
         if m:
             return self._json(200, {"ok": True, "message": start_service(m.group(1))})
+        if path == "/api/gpu/detect":
+            return self._json(200, {"ok": True, "started": start_gpu_scan()})
         if path == "/api/image/cancel":
             return self._json(200, {"ok": True, "cancelled": cancel_image()})
         body = self._read_json()
@@ -700,6 +787,7 @@ class StudioServer(ThreadingHTTPServer):
 
 def main():
     PROJECTS_DIR.mkdir(exist_ok=True)
+    start_gpu_scan()  # en arrière-plan : n'empêche pas le démarrage
     server = StudioServer((HOST, PORT), Handler)
     print(f"App Studio : http://{HOST}:{PORT}  (Ollama: {OLLAMA_URL} | images: sd-cpp)")
     try:

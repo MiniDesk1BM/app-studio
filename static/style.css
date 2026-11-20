@@ -141,6 +141,8 @@ select:focus, input[type=text]:focus, textarea:focus { border-color: var(--accen
 #code { flex: 1; border: 0; border-radius: 0; resize: none; font-family: Consolas, "Courier New", monospace; font-size: 13px; line-height: 1.5; tab-size: 2; white-space: pre; }
 
 .banner { margin: 12px; padding: 10px 12px; border: 1px solid var(--warn); border-radius: 8px; color: var(--warn); background: rgba(251, 191, 36, .08); font-size: 12.5px; }
+.banner.info { border-color: var(--line); color: var(--muted); background: transparent; }
+
 .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; padding: 14px; }
 .slot { background: var(--panel2); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
 .slot .img { aspect-ratio: 4 / 3; background: repeating-linear-gradient(45deg, #0e1530, #0e1530 10px, #111a3a 10px, #111a3a 20px); display: grid; place-items: center; color: var(--muted); font-size: 12.5px; position: relative; }

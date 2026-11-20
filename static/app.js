@@ -399,7 +399,7 @@ Reply in the user's language (French by default). Write a concise brief (max 250
       await persistVisuals();
       const improve = !placeholder && $('v-improve').checked && !$('v-improve').disabled;
       const r = await api('/api/image', { method: 'POST', body: {
-        prompt: slot.prompt, aspect: slot.aspect, placeholder, improve,
+        prompt: slot.prompt, aspect: slot.aspect, placeholder, improve, device: $('v-device').value || 'auto',
         model: $('model').value, project: state.name, file: slot.file } });
       slot.used = !r.placeholder && r.prompt_used && r.prompt_used !== slot.prompt.trim() ? r.prompt_used : '';
       slot.src = `data:${r.mime};base64,${r.data}`;
@@ -565,8 +565,38 @@ Reply in the user's language (French by default). Write a concise brief (max 250
       $(label).className = 'opt' + (has ? '' : ' off');
       $(label).title = has ? `Réécrit ${what} avec ${s.improve_model}` : 'Modèle gnokit/improve-prompt non installé dans Ollama';
     }
+    renderGpu(s.gpu);
     fillModels($('model'), 'studio.model', s.ollama.models, false);
     fillModels($('model-design'), 'studio.model.design', s.ollama.models, true);
+  }
+
+  // Détection du GPU : choix du périphérique de calcul et indication si une version GPU de sd-cli est à installer.
+  function renderGpu(g) {
+    const sel = $('v-device'), note = $('gpu-note'), btn = $('btn-gpu');
+    if (!g) { note.hidden = true; return; }
+    const devs = g.devices || [], hw = g.hardware || [];
+    const sig = devs.map((d) => d.name).join('|');
+    if (sel.dataset.sig !== sig) {
+      let saved = null; try { saved = localStorage.getItem('studio.device'); } catch { /* stockage indisponible */ }
+      const prev = sel.dataset.sig === undefined ? saved : sel.value;
+      sel.replaceChildren(
+        el('option', { value: 'auto', text: devs.length ? 'Auto (GPU)' : 'Auto (processeur)' }),
+        el('option', { value: 'cpu', text: 'Processeur (CPU)' }),
+        ...devs.map((d) => el('option', { value: d.name, text: `GPU ${d.name}${d.description ? ' : ' + d.description : ''}` })));
+      sel.dataset.sig = sig;
+      sel.value = ['auto', 'cpu', ...devs.map((d) => d.name)].includes(prev) ? prev : 'auto';
+    }
+    sel.disabled = !devs.length;
+    btn.disabled = !!g.scanning;
+    btn.textContent = g.scanning ? 'Détection...' : 'Détecter le GPU';
+    const names = hw.map((h) => h.name + (h.vram_mb ? ` (${Math.round(h.vram_mb / 1024)} Go)` : '')).join(', ');
+    let msg = '';
+    if (g.scanning && !g.scanned) msg = 'Détection de la carte graphique en cours...';
+    else if (devs.length) msg = `GPU utilisable par sd-cli : ${devs.map((d) => d.name).join(', ')}. Choisissez le calcul dans la liste (Auto = GPU).`;
+    else if (hw.length) msg = `Carte graphique détectée : ${names}. Le sd-cli installé fonctionne sur le processeur seulement : voir le Guide pour installer la version GPU.`;
+    else if (g.scanned) msg = 'Aucune carte graphique détectée : les images sont calculées sur le processeur.';
+    note.textContent = msg;
+    note.hidden = !msg;
   }
 
   // Remplit une liste de modèles en conservant le choix courant ou mémorisé.
@@ -646,14 +676,17 @@ Reply in the user's language (French by default). Write a concise brief (max 250
       el('p', { text: 'Installez Ollama depuis ollama.com, puis téléchargez un modèle de code (exemple ci-dessous). Un modèle « coder » donne de meilleurs résultats que un modèle généraliste.' }),
       el('pre', { text: 'ollama pull qwen2.5-coder:7b' }),
       el('h3', { text: 'Moteur d\'images : stable-diffusion.cpp' }),
-      el('p', { text: 'Les images sont générées par stable-diffusion.cpp (sd-cli) avec le modèle Z-Image Turbo quantifié (8 étapes). Il tourne sur le processeur, sans carte graphique : comptez plusieurs minutes par image. Le programme est lancé à la demande puis s\'arrête, et Ollama est déchargé pendant ce temps pour libérer la mémoire.' }),
+      el('p', { text: 'Les images sont générées par stable-diffusion.cpp (sd-cli) avec le modèle Z-Image Turbo quantifié (8 étapes). Avec la version fournie, le calcul se fait sur le processeur : comptez plusieurs minutes par image. Le programme est lancé à la demande puis s\'arrête, et Ollama est déchargé pendant ce temps pour libérer la mémoire.' }),
+      el('h3', { text: 'Utiliser la carte graphique' }),
+      el('p', { text: 'Au démarrage, le studio liste les périphériques que sd-cli sait utiliser (sd-cli --list-devices) et les cartes graphiques présentes sur la machine (onglet Visuels, bouton « Détecter le GPU »). Si un GPU est utilisable, il devient le choix « Auto » ; la liste permet de forcer le processeur.' }),
+      el('p', { text: 'Pour activer le GPU, remplacez les fichiers de sd-cpp/ (sauf models/) par une version GPU de la même release stable-diffusion.cpp : win-cuda12-x64 pour une carte NVIDIA (ajoutez aussi cudart-sd-bin-win-cu12-x64) ou win-vulkan-x64 pour NVIDIA, AMD ou Intel. Une carte avec peu de mémoire (1 à 4 Go) sera lente ou instable avec ce modèle de 4 Go : gardez alors le processeur.' }),
       el('p', { text: 'Option « Améliorer les prompts » (onglet Visuels) : si le modèle gnokit/improve-prompt est installé dans Ollama, chaque description est réécrite avant le dessin (style, sujet, détails, 75 mots maximum), puis le modèle est déchargé avant de lancer sd-cli. Le prompt utilisé s\'affiche sous la description.' }),
       el('p', { text: 'Option « Améliorer ma demande » (zone de saisie) : le même modèle précise votre demande d\'application (fonctionnalités, interface, contraintes) avant la conception et le code. La version enrichie s\'affiche dans le chat et c\'est elle que les modèles reçoivent. Si l\'amélioration échoue, votre demande d\'origine est utilisée.' }),
       el('pre', { text: 'ollama pull gnokit/improve-prompt' }),
       el('p', { text: 'Fichiers attendus dans sd-cpp/ :' }),
       el('pre', { text: 'sd-cpp/sd-cli.exe\nsd-cpp/models/z_image_turbo-Q4_K.gguf\nsd-cpp/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf\nsd-cpp/models/ae.safetensors' }),
       el('h3', { text: 'Adresses et chemins personnalisés' }),
-      el('p', { text: 'Variables d\'environnement avant le lancement : OLLAMA_URL, STUDIO_PORT, OLLAMA_EXE, SD_CPP_DIR.' }));
+      el('p', { text: 'Variables d\'environnement avant le lancement : OLLAMA_URL, STUDIO_PORT, OLLAMA_EXE, SD_CPP_DIR, SD_DEVICE (auto, cpu ou nom du périphérique).' }));
   }
 
   /* ------------------------------------------------------------ init */
@@ -690,6 +723,12 @@ Reply in the user's language (French by default). Write a concise brief (max 250
       try { await saveFiles({ [state.cur]: state.files[state.cur] }); showPreview(); toast('Fichier enregistré.'); } catch (e) { toast(e.message); }
     });
     $('v-improve').addEventListener('change', () => { try { localStorage.setItem('studio.improve', $('v-improve').checked ? '1' : '0'); } catch { /* ignoré */ } });
+    $('v-device').addEventListener('change', () => { try { localStorage.setItem('studio.device', $('v-device').value); } catch { /* ignoré */ } });
+    $('btn-gpu').addEventListener('click', async () => {
+      try { await api('/api/gpu/detect', { method: 'POST', body: {} }); } catch (e) { toast(e.message); }
+      refreshStatus();
+      const t = setInterval(async () => { await refreshStatus(); if (!(state.status && state.status.gpu && state.status.gpu.scanning)) clearInterval(t); }, 1500);
+    });
     $('chat-improve').addEventListener('change', () => { try { localStorage.setItem('studio.improve.chat', $('chat-improve').checked ? '1' : '0'); } catch { /* ignoré */ } });
     $('btn-addslot').addEventListener('click', () => {
       let i = state.slots.length + 1;
