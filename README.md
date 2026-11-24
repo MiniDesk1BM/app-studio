@@ -30,6 +30,8 @@ Le panneau **Services** de l'interface affiche l'état d'Ollama (avec « Démarr
 - Images : `sd-cli.exe` ([stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp)) est lancé à la demande, une fois par image, puis s'arrête. Avec le build CPU, aucun GPU n'est requis mais comptez plusieurs minutes par image. Les logs sont dans `logs/sd.log`.
 - Carte graphique : au démarrage (et via le bouton « Détecter le GPU » de l'onglet Visuels, route `POST /api/gpu/detect`), le serveur liste les périphériques GPU de `sd-cli --list-devices` et les cartes présentes sur la machine (Windows, `nvidia-smi` pour la mémoire). Si `sd-cli` voit un GPU, « Auto » l'utilise (option `--backend`) ; la liste permet de forcer le processeur (variable `SD_DEVICE` : `auto`, `cpu` ou nom du périphérique). Le build CPU fourni ne voit aucun GPU : pour en profiter, remplacez les fichiers de `sd-cpp/` (sauf `models/`) par le build `win-cuda12-x64` (NVIDIA, avec `cudart-sd-bin-win-cu12-x64`) ou `win-vulkan-x64` de la même release. Le périphérique est validé par liste d'autorisation.
 
+Téléchargement automatique des modèles : `python download_models.py` (ignore les fichiers déjà présents, reprend un téléchargement interrompu). `sd-cli.exe` reste à copier depuis la release de stable-diffusion.cpp.
+
 Fichiers attendus (le bouton de génération reste désactivé s'il en manque un) :
 
 ```
